@@ -135,4 +135,4 @@ Upon successful or failed database record is updated with email service informat
    ```
 
 #### Summary
-The PDF Generation Service provides a  way to generate and send PDF to email service from a JSON payload. It has endpoint to regenerate PDF from database record and handle callback and notify the callee service.
+The PDF Generation Service provides a way to generate and send PDF to email service from a JSON payload. It has endpoint to regenerate PDF from database record and handle callback and notify the callee service.

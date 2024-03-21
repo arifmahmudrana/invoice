@@ -1,17 +1,17 @@
-### Technical Document: Customer API
+### Customer API Service
 
 #### Overview
-This document provides an overview and analysis of the Customer API implemented in Go using the Chi router. The API allows users to retrieve customer information based on a customer ID.
+The API allows users to retrieve customer information based on a customer ID.
 
 #### Features
 - Retrieve customer information by customer ID.
 - Serve customer data in JSON format.
 - Error handling for non-existent customer IDs.
 
-#### Implementation Details
+#### Details
 
 ##### Dependencies
-- [Chi](https://github.com/go-chi/chi/v5): A lightweight, idiomatic and composable router for building Go HTTP services.
+- [Chi](https://github.com/go-chi/chi/v5)
 
 ##### Customer Struct
 The `Customer` struct represents customer data with the following fields:
@@ -28,16 +28,22 @@ Customer data is stored in a in memory map called `customerData`, where each key
    - If the customer ID exists in the `customerData` map, the corresponding customer information is returned in JSON format.
    - If the customer ID does not exist, a 404 Not Found error is returned.
 
-##### Running the Server
-The server listens on the port specified by the `PORT` environment variable. Ensure the `PORT` environment variable is set before running the server.
+##### Environment Variables
+The following environment variables are required to run the project:
+- `PORT`: Specifies the port on which the server will listen.
 
 #### Running the Application
-1. Install dependencies:
+1. Set the required environment variables:
+   ```
+   export PORT=8080
+   ```
+
+2. Install dependencies:
    ```
    go mod tidy
    ```
 
-2. Build and run the application:
+3. Build and run the application:
    ```
    go run main.go
    ```
@@ -48,5 +54,5 @@ The server listens on the port specified by the `PORT` environment variable. Ens
    GET /api/customers/CUSTOMER-0001
    ```
 
-#### Conclusion
-The Customer API provides a simple and efficient way to retrieve customer information using a RESTful interface. It leverages the Chi router for routing and handling HTTP requests, making it easy to extend and maintain.
+#### Summary
+The Customer API provides an in memory dummy simple service to retrieve customer information using a RESTful interface. It uses the Chi router for routing and handling HTTP requests.

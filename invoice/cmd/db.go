@@ -131,7 +131,7 @@ func createTable(db *sql.DB) error {
 	}
 
 	// status 0 => NOT_STARTED, 1 => PROCESSING, 2 => DONE, 3 => FAILED
-	_, err = db.Exec(`CREATE TABLE invoices (
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS invoices (
     id INT AUTO_INCREMENT PRIMARY KEY,
     subscription_id INT NOT NULL,
     customer_id VARCHAR(255) NOT NULL,

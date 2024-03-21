@@ -195,6 +195,7 @@ func GetSubscriptions(db *sql.DB, currentTime time.Time) ([]Subscription, error)
 			subscription Subscription
 			s            sql.NullString
 			c            string
+			nid          string
 		)
 		err := rows.Scan(
 			&subscription.ID,
@@ -209,14 +210,19 @@ func GetSubscriptions(db *sql.DB, currentTime time.Time) ([]Subscription, error)
 			&subscription.Currency,
 			&subscription.ProductCode,
 			&subscription.BillingFrequencyRemains,
-			&subscription.NextInvoiceDate,
+			&nid,
 			&s,
 			&subscription.Status,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error scanning subscription row: %v", err)
 		}
-		t, err := time.Parse(time.DateOnly, c)
+		t, err := time.Parse(time.DateOnly, nid)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing contract_start_date: %v", err)
+		}
+		subscription.NextInvoiceDate = t
+		t, err = time.Parse(time.DateOnly, c)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing contract_start_date: %v", err)
 		}

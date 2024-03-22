@@ -68,6 +68,7 @@ func processInvoiceDaily() {
 
 	// TODO: can we use concurrency
 	for _, subscription := range subscriptions {
+		log.Printf("Processing subscription: %#v\n", subscription)
 		// Call accounts service for price
 		accountsData, err := GetAccountDetails(subscription.CustomerID, subscription.ProductCode)
 		if err != nil {
@@ -193,6 +194,8 @@ func processInvoiceDaily() {
 			}
 			continue
 		}
+
+		log.Printf("Processed subscription: %#v\n", subscription)
 	}
 
 	log.Println("Processing invoicing daily task...")

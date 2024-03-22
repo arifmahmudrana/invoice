@@ -76,20 +76,24 @@ func main() {
 		invoiceID := chi.URLParam(r, "invoiceID")
 		invoice, err := ParseInvoiceID(invoiceID)
 		if err != nil {
-			log.Printf("Error ParseInvoiceID: %v\n", err)
+			log.Printf("Error ParseInvoiceID for invoiceID %s: %v\n", invoiceID, err)
 			http.NotFound(w, r)
+			return
 		}
+		log.Printf("Invoice after parsing: %#v\n", invoice)
 
 		invoice, err = GetInvoiceByInfo(db, invoice.ID, invoice.SubscriptionID, invoice.CustomerID, invoice.ProductCode)
 		if err != nil {
 			log.Printf("Error GetInvoiceByInfo: %v\n", err)
 			http.NotFound(w, r)
+			return
 		}
 
 		subscription, err := GetSubscriptionByIDCustomerIDProductCode(db, invoice.SubscriptionID, invoice.CustomerID, invoice.ProductCode)
 		if err != nil {
 			log.Printf("Error GetSubscriptionByIDCustomerIDProductCode: %v\n", err)
 			http.NotFound(w, r)
+			return
 		}
 
 		// Begin the transaction

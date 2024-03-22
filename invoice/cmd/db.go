@@ -122,9 +122,9 @@ func createTable(db *sql.DB) error {
 			next_invoice_date DATE NOT NULL,
 			invoicing_started_at DATETIME DEFAULT NULL,
 			status TINYINT NOT NULL DEFAULT 0,
-			INDEX idx_billing_frequency_remains (billing_frequency_remains),
-			INDEX idx_next_invoice_date (next_invoice_date),
-			INDEX idx_status (status)
+			INDEX subscriptions_idx_billing_frequency_remains (billing_frequency_remains),
+			INDEX subscriptions_idx_next_invoice_date (next_invoice_date),
+			INDEX subscriptions_idx_status (status)
 	)`)
 	if err != nil {
 		return fmt.Errorf("error creating table: %v", err)
@@ -144,7 +144,7 @@ func createTable(db *sql.DB) error {
 		tax INT NOT NULL,
 		unit INT NOT NULL,
 		description VARCHAR(255) NOT NULL,
-		price_per_unit DECIMAL(10, 2),
+		price_per_unit DECIMAL(10, 2) NOT NULL,
 		price DECIMAL(10, 2) NOT NULL,
 		sub_total DECIMAL(10, 2) NOT NULL,
 		tax_amount DECIMAL(10, 2) NOT NULL,
@@ -154,10 +154,10 @@ func createTable(db *sql.DB) error {
 		invoicing_started_at DATETIME NOT NULL,
 		status TINYINT NOT NULL DEFAULT 1,
     FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE ON UPDATE CASCADE,
-		INDEX idx_customer_id (customer_id),
-		INDEX idx_product_code (product_code),
-		INDEX idx_invoicing_started_at (invoicing_started_at),
-		INDEX idx_status (status)
+		INDEX invoices_idx_customer_id (customer_id),
+		INDEX invoices_idx_product_code (product_code),
+		INDEX invoices_idx_invoicing_started_at (invoicing_started_at),
+		INDEX invoices_idx_status (status)
 	)`)
 	if err != nil {
 		return fmt.Errorf("error creating table: %v", err)
@@ -171,8 +171,7 @@ func GetSubscriptions(db *sql.DB, currentTime time.Time) ([]Subscription, error)
 	query := `
 		SELECT id, customer_id, contract_start_date, duration, duration_units, 
 			billing_frequency, billing_frequency_units, price, tax, currency, 
-			product_code, billing_frequency_remains, next_invoice_date, 
-			invoicing_started_at, status
+			product_code, billing_frequency_remains, next_invoice_date, status
 		FROM subscriptions
 		WHERE billing_frequency_remains > 0 
 			AND next_invoice_date <= ? 
@@ -193,7 +192,6 @@ func GetSubscriptions(db *sql.DB, currentTime time.Time) ([]Subscription, error)
 	for rows.Next() {
 		var (
 			subscription Subscription
-			s            sql.NullString
 			c            string
 			nid          string
 		)
@@ -211,7 +209,6 @@ func GetSubscriptions(db *sql.DB, currentTime time.Time) ([]Subscription, error)
 			&subscription.ProductCode,
 			&subscription.BillingFrequencyRemains,
 			&nid,
-			&s,
 			&subscription.Status,
 		)
 		if err != nil {
@@ -219,7 +216,7 @@ func GetSubscriptions(db *sql.DB, currentTime time.Time) ([]Subscription, error)
 		}
 		t, err := time.Parse(time.DateOnly, nid)
 		if err != nil {
-			return nil, fmt.Errorf("error parsing contract_start_date: %v", err)
+			return nil, fmt.Errorf("error parsing next_invoice_date: %v", err)
 		}
 		subscription.NextInvoiceDate = t
 		t, err = time.Parse(time.DateOnly, c)
@@ -227,13 +224,6 @@ func GetSubscriptions(db *sql.DB, currentTime time.Time) ([]Subscription, error)
 			return nil, fmt.Errorf("error parsing contract_start_date: %v", err)
 		}
 		subscription.ContractStartDate = t
-		if s.Valid {
-			t, err := time.Parse(time.DateTime, s.String)
-			if err != nil {
-				return nil, fmt.Errorf("error parsing invoicing_started_at: %v", err)
-			}
-			subscription.InvoicingStartedAt = &t
-		}
 		subscriptions = append(subscriptions, subscription)
 	}
 
@@ -287,7 +277,7 @@ func InsertInvoice(tx *sql.Tx, invoice *Invoice) error {
 
 	// Execute the SQL statement with the provided values
 	result, err := tx.Exec(query, invoice.SubscriptionID, invoice.CustomerID, invoice.ProductCode,
-		invoice.EmailTo, invoice.InvoiceDate, invoice.Name, invoice.Address, invoice.Contact,
+		invoice.EmailTo, invoice.InvoiceDate.Format(time.DateOnly), invoice.Name, invoice.Address, invoice.Contact,
 		invoice.Tax, invoice.Unit, invoice.Description, invoice.PricePerUnit, invoice.Price,
 		invoice.SubTotal, invoice.TaxAmount, invoice.GrandTotal, invoice.Currency,
 		invoice.CurrencySymbol, invoice.InvoicingStartedAt, invoice.Status)
@@ -309,12 +299,12 @@ func InsertInvoice(tx *sql.Tx, invoice *Invoice) error {
 
 // GetInvoiceID returns the ID of the invoice in the specified format.
 func (i *Invoice) GetInvoiceID() string {
-	return fmt.Sprintf("INV-%d-%s-%s-%d", i.SubscriptionID, i.CustomerID, i.ProductCode, i.ID)
+	return fmt.Sprintf("INV:%d:%s:%s:%d", i.SubscriptionID, i.CustomerID, i.ProductCode, i.ID)
 }
 
 // ParseInvoiceID parses an invoice ID and validates the format.
 func ParseInvoiceID(invoiceID string) (*Invoice, error) {
-	parts := strings.Split(invoiceID, "-")
+	parts := strings.Split(invoiceID, ":")
 	if len(parts) != 5 || parts[0] != "INV" {
 		return nil, fmt.Errorf("invalid invoice ID format")
 	}
@@ -343,7 +333,7 @@ func GetInvoiceByInfo(db *sql.DB, id int, subscriptionID int, customerID string,
 	query := `
 		SELECT id, subscription_id, customer_id, product_code, email_to, invoice_date, 
 		name, address, contact, tax, unit, description, price_per_unit, price, sub_total, 
-		tax_amount, grand_total, currency, currency_symbol, invoicing_started_at, status
+		tax_amount, grand_total, currency, currency_symbol, status
 		FROM invoices
 		WHERE id = ? AND subscription_id = ? AND customer_id = ? AND product_code = ? AND status != ?
 	`
@@ -352,14 +342,17 @@ func GetInvoiceByInfo(db *sql.DB, id int, subscriptionID int, customerID string,
 	row := db.QueryRow(query, id, subscriptionID, customerID, productCode, StatusFailed)
 
 	// Scan the row into an Invoice struct
-	var invoice Invoice
+	var (
+		invoice Invoice
+		ii      string
+	)
 	err := row.Scan(
 		&invoice.ID,
 		&invoice.SubscriptionID,
 		&invoice.CustomerID,
 		&invoice.ProductCode,
 		&invoice.EmailTo,
-		&invoice.InvoiceDate,
+		&ii,
 		&invoice.Name,
 		&invoice.Address,
 		&invoice.Contact,
@@ -373,12 +366,16 @@ func GetInvoiceByInfo(db *sql.DB, id int, subscriptionID int, customerID string,
 		&invoice.GrandTotal,
 		&invoice.Currency,
 		&invoice.CurrencySymbol,
-		&invoice.InvoicingStartedAt,
 		&invoice.Status,
 	)
 	if err != nil {
 		return nil, err
 	}
+	t, err := time.Parse(time.DateOnly, ii)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing invoice_date: %v", err)
+	}
+	invoice.InvoiceDate = t
 
 	return &invoice, nil
 }
@@ -389,8 +386,7 @@ func GetSubscriptionByIDCustomerIDProductCode(db *sql.DB, subscriptionID int, cu
 	query := `
 			SELECT id, customer_id, contract_start_date, duration, duration_units, 
 					billing_frequency, billing_frequency_units, price, tax, currency, 
-					product_code, billing_frequency_remains, next_invoice_date, 
-					invoicing_started_at, status
+					product_code, billing_frequency_remains, next_invoice_date, status
 			FROM subscriptions
 			WHERE id = ? AND customer_id = ? AND product_code = ? AND status != ?
 	`
@@ -401,12 +397,13 @@ func GetSubscriptionByIDCustomerIDProductCode(db *sql.DB, subscriptionID int, cu
 	// Scan the result into a Subscription struct
 	var (
 		subscription Subscription
-		t            sql.NullTime
+		ss           string
+		s            string
 	)
 	err := row.Scan(
 		&subscription.ID,
 		&subscription.CustomerID,
-		&subscription.ContractStartDate,
+		&ss,
 		&subscription.Duration,
 		&subscription.DurationUnits,
 		&subscription.BillingFrequency,
@@ -416,8 +413,7 @@ func GetSubscriptionByIDCustomerIDProductCode(db *sql.DB, subscriptionID int, cu
 		&subscription.Currency,
 		&subscription.ProductCode,
 		&subscription.BillingFrequencyRemains,
-		&subscription.NextInvoiceDate,
-		&t,
+		&s,
 		&subscription.Status,
 	)
 	if err != nil {
@@ -427,9 +423,17 @@ func GetSubscriptionByIDCustomerIDProductCode(db *sql.DB, subscriptionID int, cu
 		return nil, fmt.Errorf("error retrieving subscription: %v", err)
 	}
 
-	if t.Valid {
-		subscription.InvoicingStartedAt = &t.Time
+	tt, err := time.Parse(time.DateOnly, ss)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing contract_start_date: %v", err)
 	}
+	subscription.ContractStartDate = tt
+
+	tt, err = time.Parse(time.DateOnly, s)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing next_invoice_date: %v", err)
+	}
+	subscription.NextInvoiceDate = tt
 
 	return &subscription, nil
 }
@@ -451,8 +455,7 @@ func GetInvoices(db *sql.DB, InvoicingStartedAt time.Time) ([]Invoice, error) {
 	query := `
 			SELECT id, subscription_id, customer_id, product_code, email_to, invoice_date, 
 						 name, address, contact, tax, unit, description, price_per_unit, price, 
-						 sub_total, tax_amount, grand_total, currency, currency_symbol, 
-						 invoicing_started_at, status
+						 sub_total, tax_amount, grand_total, currency, currency_symbol, status
 			FROM invoices
 			WHERE invoicing_started_at <= ? AND status = ?
 			LIMIT 100
@@ -466,14 +469,17 @@ func GetInvoices(db *sql.DB, InvoicingStartedAt time.Time) ([]Invoice, error) {
 
 	var invoices []Invoice
 	for rows.Next() {
-		var invoice Invoice
+		var (
+			invoice Invoice
+			ss      string
+		)
 		if err := rows.Scan(
 			&invoice.ID,
 			&invoice.SubscriptionID,
 			&invoice.CustomerID,
 			&invoice.ProductCode,
 			&invoice.EmailTo,
-			&invoice.InvoiceDate,
+			&ss,
 			&invoice.Name,
 			&invoice.Address,
 			&invoice.Contact,
@@ -487,11 +493,15 @@ func GetInvoices(db *sql.DB, InvoicingStartedAt time.Time) ([]Invoice, error) {
 			&invoice.GrandTotal,
 			&invoice.Currency,
 			&invoice.CurrencySymbol,
-			&invoice.InvoicingStartedAt,
 			&invoice.Status,
 		); err != nil {
 			return nil, fmt.Errorf("error scanning invoice row: %w", err)
 		}
+		t, err := time.Parse(time.DateOnly, ss)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing invoice_date: %v", err)
+		}
+		invoice.InvoiceDate = t
 		invoices = append(invoices, invoice)
 	}
 

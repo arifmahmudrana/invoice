@@ -44,17 +44,17 @@ func MakeHTTPRequest(method, url string, body interface{}) (*http.Response, erro
 	}
 
 	// Prepare the request body if provided
-	var reqBody *bytes.Buffer
+	var reqBody []byte
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
 		if err != nil {
 			return nil, err
 		}
-		reqBody = bytes.NewBuffer(jsonBody)
+		reqBody = jsonBody
 	}
 
 	// Create the request
-	req, err := http.NewRequest(method, url, reqBody)
+	req, err := http.NewRequest(method, url, bytes.NewBuffer(reqBody))
 	if err != nil {
 		return nil, err
 	}
